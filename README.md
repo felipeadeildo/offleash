@@ -1,202 +1,236 @@
-# furbo-local
+# offleash
 
-Stream e controles do Furbo na sua rede, sem app e sem cloud: o bridge roda a
-sessão P2P local, o go2rtc publica em RTSP e WebRTC, e a web app dá player e
-botões. Nada de conta, nada de MFA, nada saindo para a Furbo.
+Stream e controles do **Furbo** direto da sua rede: vídeo em 2K, pan, petisco e
+ajustes, sem app e sem nuvem.
 
-```
-Furbo Mini 360 ──(TUTK P2P, DTLS-PSK)──▶ furbo-bridge ──HTTP──▶ go2rtc
-                                              │                    │
-                                              └── /api/** ──▶ furbo-web ──▶ navegador
-                                                                   │
-                                                     rtsp://…:8554/furbo ──▶ mpv, VLC, HA
-```
+O nome é o duplo sentido de sempre, *off the leash* e *offline* na mesma
+palavra: a câmera sai da coleira e o vídeo sai da nuvem.
 
-## A credencial, sem rodeios
+## Por que isso existe
 
-Não dá para fugir dela, e vale entender por quê antes de abrir a câmera.
+A câmera Furbo é boa. O que está em volta dela é que não. O vídeo passa pelo
+cloud, o clipe que você grava sai com marca d'água, o histórico bom fica atrás
+de assinatura, o alerta de latido é uma caixa preta que você não pode auditar
+nem ajustar, e não existe forma de gravar na sua máquina, plugar no seu NVR ou
+automatizar qualquer coisa.
 
-O vídeo não passa por nenhum protocolo aberto que dê para interceptar. Ele sai
-por TUTK/Kalay, um P2P da ThroughTek que autentica nas duas pontas com uma
-chave de 8 caracteres (o `AuthKey`) e um par conta/senha da camada de áudio e
-vídeo, tudo dentro de um handshake DTLS-PSK com a chave do fabricante
-compilada no binário. Não é texto claro em lugar nenhum, então sniffar não
-resolve, e não há como derivar de outro valor.
+Só que a câmera já está na sua rede, e o que ela faz é software. **A ambição
+aqui não é clonar o app: é ser melhor em tudo o que depende de rodar na sua casa
+em vez de no servidor de outra pessoa.**
 
-Esses quatro valores existem em três lugares:
+## Onde isso pode ser melhor
 
-| Onde | O que tem | Serve? |
+| | Furbo | offleash |
 | --- | --- | --- |
-| Cloud da Furbo (`/v5/device/p2p_connection/get`) | tudo, mas reemitido a cada consulta | precisa de conta e MFA |
-| Flash da câmera (`/mnt/flash/furbo/p2p_auth.json`) | `authKey` e `password` | é o que queremos |
-| Memória do app no celular | o que o cloud mandou | morre quando o cloud reemite |
+| latência | relay pelo cloud, segundos | P2P na sua LAN, fração de segundo |
+| onde o vídeo vive | servidor deles | a sua rede |
+| gravação | clipes no cloud, com marca d'água | arquivo seu, em 2K, sem marca |
+| histórico | atrás de assinatura | o seu disco, sem limite artificial |
+| alerta de latido | caixa preta no cloud | modelo local, e você vê o que ele faz |
+| integração | nenhuma | RTSP, API HTTP, MQTT, webhooks |
+| automação | nenhuma | qualquer coisa, porque é software livre |
+| quantas pessoas assistindo | uma | uma também, por enquanto: é limite da câmera |
 
-Ou seja: para ser independente do cloud, os valores têm de sair da câmera, uma
-vez. Depois disso, nada mais precisa de internet.
+O que ainda não é melhor: o app deles é polido e o nosso é uma página com
+botões. Isso é a parte fácil de melhorar.
 
-O que já não precisamos buscar em lugar nenhum está no código do bridge, e é o
-que mais assusta: a `License Key` do vendor, que é o que habilita a SDK 4.x do
-TUTK, está em `furbo_p2p.py` como constante, extraída do app. Todo o resto do
-protocolo (opcodes de IOCTL, comandos de pan, de petisco, mapeamento de
-qualidade por versão de produto) também já está implementado e testado.
+## Estado
 
-## Os dois jeitos de conseguir os quatro valores
+Funciona, e foi medido numa câmera de verdade, não num emulador: **Furbo Mini
+360°**, produto `MC0030`, firmware `045`.
 
-### Do cloud, uma vez (mais rápido)
-
-```sh
-./harvest.sh send          # digita e-mail e senha, e recebe o código por e-mail
-./harvest.sh code 123456   # fecha o login, colhe e grava o creds.json
-```
-
-O script loga, chama `/v5/device/p2p_connection/get`, grava os quatro valores e
-**apaga a sessão de cloud no fim**: nenhum token seu fica no disco. Ele termina
-com o aviso que é o coração de todo esse assunto:
-
-> Daqui para frente, não abra a live view no app da Furbo. Cada vez que o app
-> pede credenciais ao cloud, as daqui são reemitidas e as gravadas morrem.
-
-Se isso acontecer, é só rodar `./harvest.sh send` outra vez. O e-mail e a senha
-ficam em `$FURBO_DATA_DIR/harvest.env` (modo 600), então re-colher custa um
-código novo do e-mail e mais nada.
-
-### Do aparelho, sem cloud nenhum
-
-É o caminho de baixo, e exige abrir a câmera. Serve para quando você quiser
-independência total, ou se a conta não deixar mais o login entrar.
-
-## O que quebra a credencial, e o que não quebra
-
-| Quebra | Não quebra |
+| | |
 | --- | --- |
-| Abrir a live view no app | Reiniciar a câmera, o PC, ou os containers |
-| Reconfigurar a rede da câmera pelo app | A câmera ficar sem internet |
-| Reset de fábrica, ou firmware que apague o `p2p_auth.json` | O tempo passar |
+| vídeo | 2560x1440, H.264 Main, 15 fps, pela sessão P2P na própria LAN |
+| saídas | RTSP, WebRTC e uma web app com player embutido |
+| controles | pan, petisco, som do petisco, volume, visão noturna, sensibilidade ao latido, autotracking, autozoom, qualidade |
+| sem | app no celular, relay, e nenhuma conta no cloud depois da colheita inicial |
 
-A primeira linha da coluna da esquerda é a que importa: **o app e este projeto
-são mutuamente exclusivos na live view.** Usar um derruba o outro, porque há
-um só conjunto de credenciais P2P por vez. Quem quiser as duas coisas ao mesmo
-tempo vai ter de aceitar re-colher a credencial a cada uso do app.
+## Arquitetura
 
-## Vida sem o app
-
-Pode desinstalar. Depois da colheita, o app não faz falta para nada aqui.
-
-Uma distinção que vale ter clara: "offline" neste projeto quer dizer que **o
-nosso lado** não precisa do cloud, e não que a câmera vá ficar muda. A câmera
-segue falando com o cloud dela por conta própria, empurrando alertas e
-gravações, e isso é independente do app no seu celular. Para cortar isso também
-seria preciso bloquear a saída da câmera no roteador. Não testei o stream com a
-câmera totalmente sem internet: o SDK resolve o UID pelos servidores da
-ThroughTek, e a busca em LAN costuma bastar, mas isso só vale como afirmação
-depois de medir com a câmera na mão.
-
-## Preenchendo creds.json
-
-Copie e preencha:
-
-```sh
-cp creds.json.example creds.json && chmod 600 creds.json
+```
+câmera ──(TUTK/Kalay P2P, DTLS)──▶ bridge ──HTTP──▶ go2rtc ──▶ RTSP / WebRTC
+                                     │                        │
+                                     └── API local ──▶ web app ──▶ navegador
 ```
 
-| Campo | De onde vem |
-| --- | --- |
-| `uid` | `P2PUuid`, em `/mnt/flash/furbo/setup_info.json`. 20 caracteres |
-| `auth_key` | `authKey`, em `/mnt/flash/furbo/p2p_auth.json`. 8 caracteres |
-| `password` | `password`, no mesmo `p2p_auth.json` |
-| `account` | `P2PAccountId`, no corpo de `/v5/device/p2p_connection/get` |
-| `proto` | `v3` no Mini 2, Mini 3, Mini 360 e 360. `v2` nos FB001, FB002, FB0025 |
+Três processos, todos em containers do mesmo image, todos em `--network host`:
 
-Teste rápido, sem subir a stack inteira:
+- **bridge** mantém a sessão P2P, lê o H.264 cru e expõe uma API HTTP com o
+  estado e os comandos da câmera
+- **go2rtc** transforma esse H.264 em RTSP e WebRTC, sob demanda
+- **web app** serve a interface e faz de proxy para a API injetando o token, de
+  modo que o navegador nunca vê o segredo
 
-```sh
-docker run --rm --network host --entrypoint python3 -e PYTHONPATH=/app \
-  -v "$PWD:/local:ro" -e FURBO_P2P_CREDS=/local/creds.json furbo-bridge:local \
-  /local/run_bridge.py p2p-status --lib /usr/local/lib/libIOTCAPIs_ALL.so
-```
+## Começando
 
-Se as credenciais estiverem certas, ele imprime o estado da câmera (energia,
-volume, visão noturna, sensibilidade). Errado dá `IOTC_ER_UNLICENSE` (-10) para
-UID inválido ou `IOTC_ER_DEVICE_REJECT_BY_WRONG_AUTH_KEY` (-90) para chave
-errada, e essa diferença já diz qual dos dois campos está torto.
-
-## Como chegar nos arquivos do aparelho
-
-Isto exige abrir a câmera. O Furbo Mini 360 é o FCC ID `2BPVM-MINICAM3`, e as
-fotos internas são públicas em
-`https://fccid.io/2BPVM-MINICAM3/Internal-Photos/Internal-Photos-8514684`, o que
-dá o mapa da placa antes de mexer em nada.
-
-1. Adaptador USB-serial **de 3,3 V** (CH340 ou FTDI). O 360 tem um conector de
-   4 pinos; nos relatos, um cabo JST SH de 4 vias encaixa melhor do que
-   garras.
-2. `115200 8N1`. Aterre antes de energizar a câmera e abra o terminal.
-3. Na inicialização, interrompa o uboot e troque o init:
-   `setenv bootargs … init=/bin/sh` e `boot`.
-4. `cat /mnt/flash/furbo/p2p_auth.json` e `cat /mnt/flash/furbo/setup_info.json`.
-
-O `P2PAccountId` não costuma estar nesses dois arquivos. Ele sai fácil do
-cloud com o token da conta, ou do corpo de `p2p_connection/get` capturado uma
-vez.
-
-Três avisos honestos sobre esta etapa:
-
-- No Furbo Mini de 2021 (MINICAM2) o uboot era interrompível e isso deu root
-  direto. No Furbo 360, os pesquisadores da Software Secured encontraram o
-  UART **protegido por senha** e não conseguiram o mesmo atalho. O MINICAM3 é de
-  2025, então espere encontrar algo mais duro, não mais mole.
-- Alternativas se o uboot estiver trancado: interceptar a atualização de
-  firmware (o Mini antigo baixava de um bucket S3 com `curl -k` e sem
-  verificação de assinatura, o que permitia subir um firmware com telnet), ou
-  leitura direta do flash com programador depois de dessoldar o chip.
-- Nada disso é necessário se você aceitar o cloud só para tirar a credencial
-  uma vez. O `ha-furbo` faz isso de forma automatizada; este projeto existe
-  para o dia em que a credencial for sua.
-
-## Rodando
+Precisa de Docker e de uma câmera Furbo já configurada na sua rede.
 
 ```sh
-./run.sh            # só loopback: nada na rede alcança a câmera
-./run.sh tailnet    # também no IP do Tailscale, para ver do celular
+git clone https://github.com/felipeadeildo/offleash.git
+cd offleash
+
+# a imagem traz python, ffmpeg, go2rtc e a lib nativa do TUTK.
+# ela é construída hoje a partir do projeto de onde a camada de bridge vem
+# (ver Dependências); o roadmap é trazer esse código para cá.
+git clone https://github.com/willbeeching/ha-furbo ~/ha-furbo
+docker build -t furbo-bridge:local ~/ha-furbo/furbo-bridge
+
+# colhe as credenciais uma vez (pede e-mail, senha e o código que chega por e-mail)
+./harvest.sh send
+./harvest.sh code 123456
+
+./run.sh          # só loopback: nada na rede alcança a câmera
+./run.sh tailnet  # também no IP do Tailscale, para ver do celular
 ./run.sh logs
 ./run.sh stop
 ```
 
-| Endereço | Para quê |
-| --- | --- |
-| `http://127.0.0.1:8080/` | a web app: player, pan, petisco, ajustes |
-| `rtsp://furbo:<senha>@127.0.0.1:8554/furbo` | mpv, VLC, Home Assistant |
-| `http://127.0.0.1:1984/stream.html?src=furbo` | o player do go2rtc, que a UI embute |
+Depois disso:
 
-A senha do RTSP não é o `api_token`: ela é derivada dele
-(`printf 'furbo-rtsp:%s' "$TOKEN" | sha256sum | cut -c1-32`), para que uma URL
-de vídeo vazada não dê acesso aos controles. Homologação com Home Assistant:
-aponte a integração genérica de câmera para a URL do RTSP.
+| endereço | para quê |
+| --- | --- |
+| `http://127.0.0.1:8080/` | a web app, com player e controles |
+| `rtsp://furbo:<senha>@127.0.0.1:8554/furbo` | mpv, VLC, Home Assistant |
+
+A senha do RTSP é derivada do token da API, não é o token: uma URL de vídeo
+vazada dá vídeo e não dá acesso aos controles.
+
+## A credencial, sem rodeios
+
+Esta é a parte que quase nenhum projeto documenta, e é o que decide se o seu
+acesso vai funcionar amanhã.
+
+A câmera não aceita conexão local por RTSP nem ONVIF. Todo o vídeo sai por
+TUTK/Kalay, um P2P da ThroughTek que autentica nas duas pontas com quatro
+valores:
+
+| campo | o que é | muda ao longo do tempo? |
+| --- | --- | --- |
+| `uid` | o P2PUuid da câmera, 20 caracteres | não |
+| `auth_key` | a AuthKey do transporte IOTC, 8 caracteres | **não**, medido em duas colheitas |
+| `account` | o P2PAccountId, que no Mini 360 é o próprio MAC da câmera | não |
+| `password` | o P2PAccountKey da camada de áudio e vídeo | **sim, é reemitido a cada consulta** |
+
+E daí vem a regra que governa tudo:
+
+> **Só existe uma sessão de vídeo por vez, e cada consulta ao cloud reemite a
+> senha, invalidando a anterior.** Abrir a live view no app oficial derruba o
+> `offleash`, e usar o `offleash` derruba o app.
+
+O sintoma de senha vencida é enganoso e vale conhecer, porque imita câmera
+travada: a sessão de transporte **conecta** (ela usa a `auth_key`, que continua
+válida) e o canal de vídeo falha com `avClientStartEx -20011 AV_ER_TIMEOUT`.
+Reiniciar a câmera não resolve. Recuperar custa um minuto:
+
+```sh
+./harvest.sh send
+./harvest.sh code 123456
+```
+
+Como a senha é reemitida, quem quiser usar o app junto vai ter de re-colher a
+credencial a cada uso. É o preço de não passar pelo cloud no dia a dia.
+
+## O pan: o que o app faz de verdade
+
+O comportamento documentado aqui saiu da leitura do bytecode do app oficial
+(versão 7.84.1), e corrige um erro que está em outras implementações.
+
+`FurboP2pCmdImplTutkV3.setRotate` monta seis bytes:
+
+```
+[0] = direção        [1] = velocidade   [2..4] = zero   [5] = terceiro argumento
+```
+
+Só que o valor do segundo byte é **velocidade**, não graus, e a classe
+`LiveViewModel.e2` mostra isso:
+
+```
+isHwMini3() ? 50 : 60        # 50 no Mini 3, 60 nos outros modelos
+if (soltando) esse valor = 0
+```
+
+Ou seja, o app **prende o comando enquanto o botão está pressionado** e manda
+`[direção, 0, 0, 0, 0, 0]` **ao soltar**. O zero é o pare. Quem manda o comando
+uma vez só, sem o pare, vê a câmera girar até o batente, que foi exatamente o
+bug que originou este projeto.
+
+A câmera também reporta a posição no opcode `NOTIFY_PAN` (`0x30007`), que as
+implementações existentes ignoram: cinco bytes com um estado e um inteiro de 32
+bits, na faixa de `-668` a `+668`. É por ele que dá para medir o movimento de
+verdade em vez de adivinhar.
+
+**Como o passo é escolhido aqui:** em **tempo**, não em graus. A taxa medida é
+de aproximadamente 110 unidades por segundo na escala da câmera, mas a
+conversão disso para graus não foi medida com confiança, então a interface
+oferece passos de 0,2 s a 1,6 s em vez de prometer graus.
 
 ## Limites conhecidos
 
-- **Uma sessão P2P só.** A câmera reemite a credencial a cada nova conexão e
-  invalida a anterior. É por isso que o `stream.sh` lê da sessão do bridge em
-  vez de abrir a sua, e por isso a UI não tem talkback.
-- **App e bridge competem.** Se você abrir o app da Furbo e ele pedir
-  credenciais novas, as que estão no `creds.json` podem parar de valer. Sem app,
-  sem problema.
-- **O SDK ainda fala com os servidores de rendezvous da TUTK** para resolver o
-  UID, a menos que encontre a câmera pela busca em LAN. É a infraestrutura da
-  ThroughTek, não a sua conta na Furbo: nenhum login, nenhuma credencial é
-  emitida, e nada é enviado sobre a câmera.
-- **Áudio desligado por padrão.** Ligue com `FURBO_AUDIO=true` no `run.sh`. O
-  formato da trilha de áudio é decidido testando um decodificador, porque o
-  codec que a câmera manda não está documentado.
+- **Uma sessão de vídeo por vez**, e o app oficial compete com este projeto.
+- **Petisco e som do petisco** não foram testados no hardware, e o primeiro
+  ejetaria um petisco de verdade.
+- **Áudio** não foi testado; o codec é escolhido por tentativa.
+- **Stream com a câmera sem internet** não foi medido. O SDK resolve o UID pelos
+  servidores da ThroughTek e a busca em LAN costuma bastar, mas isso é hipótese.
+- **Uma câmera.** O código do bridge suporta várias, a interface ainda não.
+- A lib nativa do TUTK é x86_64 ou arm64; não roda em Windows nem em macOS.
+
+## Dependências e licenças
+
+O código deste repositório é MIT. Duas dependências merecem atenção antes de
+qualquer uso que não seja pessoal:
+
+1. **A camada de bridge** é hoje importada de
+   [`willbeeching/ha-furbo`](https://github.com/willbeeching/ha-furbo) (MIT), com
+   as correções deste projeto aplicadas em volta, sem modificar o original. O
+   objetivo do roadmap é assumir esse código aqui dentro, mantendo a atribuição.
+2. **A biblioteca nativa do TUTK** (`libIOTCAPIs_ALL.so`) é da ThroughTek, e é
+   baixada em tempo de build do
+   [`mrlt8/docker-wyze-bridge`](https://github.com/mrlt8/docker-wyze-bridge) com
+   commit fixo e verificação de SHA-256. Ela **não** está sob a licença MIT
+   deste repositório. Para uso pessoal é o caminho que a comunidade usa; para
+   distribuir como produto, o correto é licenciar a SDK com a ThroughTek.
+
+## Roadmap
+
+O que falta para ser melhor que o Furbo de verdade, na ordem em que faz sentido
+construir.
+
+**Primeiras vitórias**, cada uma é uma coisa que o fabricante não faz:
+
+- [ ] **Gravar em disco**: 2K contínuo ou por evento, sem marca d'água, com
+      retenção configurável e um índice de eventos. É o pedido mais óbvio de
+      quem já tem a câmera.
+- [ ] **Latido local**: detector de áudio rodando aqui, com limiar ajustável e
+      sem caixa preta. O Furbo esconde isso atrás de assinatura.
+- [ ] **Aviso onde você já está**: Telegram, WhatsApp ou webhook, com o clipe
+      anexado, em vez de notificação genérica que só abre o app deles.
+- [ ] **Assumir o código**: trazer a camada de bridge para dentro do repo, com
+      atribuição, e eliminar a dependência de importação.
+
+**Depois**, quando as primeiras estiverem de pé:
+
+- [ ] **IA na sua máquina**: detecção de cão, pessoa e movimento com modelo
+      local, e resumo do dia em linguagem natural a partir dos eventos.
+- [ ] **Busca no histórico**: "quando ele latiu ontem à noite" resolvido por
+      descrição, em vez de arrastar uma linha do tempo.
+- [ ] **Treino com reforço**: petisco com tempo de clique, sessões registradas,
+      e o reforço certo na hora certa.
+- [ ] **Pan em graus de verdade** e posições salvas ("olhar o sofá").
+- [ ] **Várias câmeras** e vários endereços, com uma interface só.
+- [ ] **Virar serviço**: sobe com um comando, autentica na interface, faz backup
+      da configuração.
+- [ ] **Talkback** e agendamento de petisco.
 
 ## Créditos
 
-O trabalho pesado é do projeto [willbeeching/ha-furbo](https://github.com/willbeeching/ha-furbo),
-que reverteu o protocolo a partir do app e publicou tudo sob MIT. Este diretório
-não modifica o código dele: importa o módulo e troca duas funções por outras que
-leem credenciais de arquivo, então um `git pull` continua limpo.
-
-A pesquisa pública que tornou isso possível: Somerset Recon (partes I a III),
-Software Secured (partes 1 a 6) e o `Fredde87/cuboai-tutk`, que implementa TUTK
-puro em Python e serve de referência para qualquer coisa que este bridge não
-cubra.
+O trabalho pesado de reverter o protocolo é de
+[`willbeeching/ha-furbo`](https://github.com/willbeeching/ha-furbo), que leu o
+protocolo no app e publicou sob MIT. A leitura do pan neste repositório veio do
+APK do app oficial, e as pesquisas públicas que abriram o caminho foram as da
+[Somerset Recon](https://www.somersetrecon.com/blog) (partes I a III) e da
+[Software Secured](https://www.softwaresecured.com/technical-research) (partes 1
+a 6). Para qualquer coisa que o bridge não cubra,
+[`Fredde87/cuboai-tutk`](https://github.com/Fredde87/cuboai-tutk) é uma
+implementação de TUTK em Python puro e ótima referência.
