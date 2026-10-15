@@ -76,6 +76,7 @@ ENV=(-e "FURBO_API_TOKEN=$TOKEN" -e "FURBO_P2P_CREDS=/local/creds.json"
      -e "FURBO_WEB_HOST=$BIND_HOST" -e "FURBO_WEB_PORT=${FURBO_WEB_PORT:-8080}"
      -e "FURBO_GO2RTC_PLAYER_PORT=1984" -e "RTSP_PASSWORD=$RTSP_PASSWORD"
      -e "FURBO_SESSION_FILE=/data/furbo_session.json"
+     -e "GO2RTC_LOG=${FURBO_LOG:-info}"
      -e "GO2RTC_API_LISTEN=$BIND_HOST:1984" -e "GO2RTC_RTSP_LISTEN=$BIND_HOST:8554"
      -e "GO2RTC_WEBRTC_LISTEN=$BIND_HOST:8555" -e "PYTHONPATH=/app")
 # Como o seu usuário, para que o que os containers escrevem em $DATA (qualidade,
