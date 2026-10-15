@@ -75,23 +75,27 @@ ENV=(-e "FURBO_API_TOKEN=$TOKEN" -e "FURBO_P2P_CREDS=/local/creds.json"
      -e "FURBO_QUALITY_FILE=/data/quality" -e "FURBO_AUDIO=${FURBO_AUDIO:-false}"
      -e "FURBO_WEB_HOST=$BIND_HOST" -e "FURBO_WEB_PORT=${FURBO_WEB_PORT:-8080}"
      -e "FURBO_GO2RTC_PLAYER_PORT=1984" -e "RTSP_PASSWORD=$RTSP_PASSWORD"
+     -e "FURBO_SESSION_FILE=/data/furbo_session.json"
      -e "GO2RTC_API_LISTEN=$BIND_HOST:1984" -e "GO2RTC_RTSP_LISTEN=$BIND_HOST:8554"
      -e "GO2RTC_WEBRTC_LISTEN=$BIND_HOST:8555" -e "PYTHONPATH=/app")
+# Como o seu usuário, para que o que os containers escrevem em $DATA (qualidade,
+# sessão, token) saia com o seu dono e continue fácil de editar e apagar.
+WHO=(--user "$(id -u):$(id -g)")
 MOUNTS=(-v "$HERE:/local:ro" -v "$DATA:/data")
 
 docker rm -f furbo-bridge furbo-go2rtc furbo-web >/dev/null 2>&1 || true
 
 docker run -d --name furbo-bridge --network host --restart unless-stopped \
-  "${MOUNTS[@]}" "${ENV[@]}" --entrypoint python3 "$IMAGE" \
+  "${WHO[@]}" "${MOUNTS[@]}" "${ENV[@]}" --entrypoint python3 "$IMAGE" \
   /local/run_bridge.py serve --token "$TOKEN" --lib "$LIB" \
   --host 127.0.0.1 --port 8791 --interval 30 >/dev/null
 
 docker run -d --name furbo-go2rtc --network host --restart unless-stopped \
-  "${MOUNTS[@]}" "${ENV[@]}" --entrypoint /usr/local/bin/go2rtc "$IMAGE" \
+  "${WHO[@]}" "${MOUNTS[@]}" "${ENV[@]}" --entrypoint /usr/local/bin/go2rtc "$IMAGE" \
   -config /local/go2rtc.yaml >/dev/null
 
 docker run -d --name furbo-web --network host --restart unless-stopped \
-  "${MOUNTS[@]}" "${ENV[@]}" --entrypoint python3 "$IMAGE" /local/web.py >/dev/null
+  "${WHO[@]}" "${MOUNTS[@]}" "${ENV[@]}" --entrypoint python3 "$IMAGE" /local/web.py >/dev/null
 
 sleep 2
 cat <<INFO

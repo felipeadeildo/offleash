@@ -40,6 +40,57 @@ TUTK, está em `furbo_p2p.py` como constante, extraída do app. Todo o resto do
 protocolo (opcodes de IOCTL, comandos de pan, de petisco, mapeamento de
 qualidade por versão de produto) também já está implementado e testado.
 
+## Os dois jeitos de conseguir os quatro valores
+
+### Do cloud, uma vez (mais rápido)
+
+```sh
+./harvest.sh send          # digita e-mail e senha, e recebe o código por e-mail
+./harvest.sh code 123456   # fecha o login, colhe e grava o creds.json
+```
+
+O script loga, chama `/v5/device/p2p_connection/get`, grava os quatro valores e
+**apaga a sessão de cloud no fim**: nenhum token seu fica no disco. Ele termina
+com o aviso que é o coração de todo esse assunto:
+
+> Daqui para frente, não abra a live view no app da Furbo. Cada vez que o app
+> pede credenciais ao cloud, as daqui são reemitidas e as gravadas morrem.
+
+Se isso acontecer, é só rodar `./harvest.sh send` outra vez. O e-mail e a senha
+ficam em `$FURBO_DATA_DIR/harvest.env` (modo 600), então re-colher custa um
+código novo do e-mail e mais nada.
+
+### Do aparelho, sem cloud nenhum
+
+É o caminho de baixo, e exige abrir a câmera. Serve para quando você quiser
+independência total, ou se a conta não deixar mais o login entrar.
+
+## O que quebra a credencial, e o que não quebra
+
+| Quebra | Não quebra |
+| --- | --- |
+| Abrir a live view no app | Reiniciar a câmera, o PC, ou os containers |
+| Reconfigurar a rede da câmera pelo app | A câmera ficar sem internet |
+| Reset de fábrica, ou firmware que apague o `p2p_auth.json` | O tempo passar |
+
+A primeira linha da coluna da esquerda é a que importa: **o app e este projeto
+são mutuamente exclusivos na live view.** Usar um derruba o outro, porque há
+um só conjunto de credenciais P2P por vez. Quem quiser as duas coisas ao mesmo
+tempo vai ter de aceitar re-colher a credencial a cada uso do app.
+
+## Vida sem o app
+
+Pode desinstalar. Depois da colheita, o app não faz falta para nada aqui.
+
+Uma distinção que vale ter clara: "offline" neste projeto quer dizer que **o
+nosso lado** não precisa do cloud, e não que a câmera vá ficar muda. A câmera
+segue falando com o cloud dela por conta própria, empurrando alertas e
+gravações, e isso é independente do app no seu celular. Para cortar isso também
+seria preciso bloquear a saída da câmera no roteador. Não testei o stream com a
+câmera totalmente sem internet: o SDK resolve o UID pelos servidores da
+ThroughTek, e a busca em LAN costuma bastar, mas isso só vale como afirmação
+depois de medir com a câmera na mão.
+
 ## Preenchendo creds.json
 
 Copie e preencha:
