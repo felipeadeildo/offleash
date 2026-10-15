@@ -65,10 +65,10 @@ TOKEN_FILE="$DATA/api_token"
 [ -f "$TOKEN_FILE" ] || openssl rand -hex 32 > "$TOKEN_FILE"
 TOKEN="$(cat "$TOKEN_FILE")"
 RTSP_PASSWORD="$(printf 'furbo-rtsp:%s' "$TOKEN" | sha256sum | cut -c1-32)"
-# Qualidade inicial; a UI reescreve estes arquivos e o bridge lê na próxima
-# abertura do stream.
+# Qualidade inicial. A câmera é 2K, então 1440p é o teto real; a UI reescreve
+# estes arquivos e o bridge lê na próxima abertura do stream.
 for name in quality "quality.default"; do
-  [ -f "$DATA/$name" ] || echo "1080p" > "$DATA/$name"
+  [ -f "$DATA/$name" ] || echo "1440p" > "$DATA/$name"
 done
 
 ENV=(-e "FURBO_API_TOKEN=$TOKEN" -e "FURBO_P2P_CREDS=/local/creds.json"
