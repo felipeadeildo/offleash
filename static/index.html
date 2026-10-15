@@ -107,18 +107,27 @@
   <aside>
     <div class="group">
       <h2>Mover</h2>
-      <!-- Esta câmera ignora o quanto girar. Medido: pedindo 30 graus a partir
-           do batente -668, ela terminou em +668, ou seja, varreu a faixa toda.
-           Por isso não existe campo de graus aqui: o que a câmera faz é girar
-           até o fim, e a UI diz isso em vez de fingir precisão. -->
+      <!-- O app prende o comando enquanto o botão está pressionado e manda o
+           pare ao soltar (segundo byte 50, depois 0; ver pan_fix.py). Aqui o
+           toque prende pelo tempo que corresponde aos graus escolhidos. -->
       <div class="pan">
-        <button data-pan="left" title="girar até o batente, à esquerda">&#9664;</button>
-        <button data-pan="right" title="girar até o batente, à direita">&#9654;</button>
+        <button data-pan="left" title="girar à esquerda">&#9664;</button>
+        <button data-pan="right" title="girar à direita">&#9654;</button>
+      </div>
+      <div class="row">
+        <label for="step">tamanho do passo</label>
+        <select id="step">
+          <option value="0.2">mínimo</option>
+          <option value="0.4" selected>curto</option>
+          <option value="0.8">médio</option>
+          <option value="1.6">longo</option>
+        </select>
       </div>
       <p class="hint">
-        Um toque gira <strong>até o fim</strong>, na direção escolhida. Esta
-        câmera ignora o quanto girar: pedindo 30 graus ela varre a faixa toda,
-        do batente ao batente.
+        O comando fica preso pelo tempo do passo, que é o que o app faz enquanto
+        você segura o botão. A câmera gira <strong>~110 unidades por segundo</strong>
+        na escala dela, mas a conversão disso para graus não foi medida com
+        confiança, então o passo é por tempo e não por grau.
       </p>
     </div>
 
@@ -290,14 +299,20 @@ $('#treat-sound').addEventListener('click', async () => {
   try { await api('/treat-sound', {}); toast('som tocado'); }
   catch (err) { toast('falhou: ' + err.message); }
 });
+// Segundos de aperto -> graus que a API do bridge espera. Tem que casar com
+// DEGREES_PER_SECOND do pan_fix.py.
+const PAN_RATE = 11;
+
 for (const button of document.querySelectorAll('[data-pan]')) {
   button.addEventListener('click', async () => {
     const direction = button.dataset.pan;
+    const seconds = Number($('#step').value) || 0.4;
     try {
-      // O valor de graus é obrigatório na API, mas esta câmera o ignora e gira
-      // até o batente. Mandamos 30 para não sugerir uma precisão que não existe.
-      await api('/pan', { direction, degrees: 30 });
-      toast('girando até o fim, ' + (direction === 'left' ? 'à esquerda' : 'à direita'));
+      // O bridge prende o comando por `degrees / PAN_RATE` segundos e manda o
+      // pare, que é o que o app faz. Sem isso a câmera gira até o batente.
+      await api('/pan', { direction, degrees: Math.round(seconds * PAN_RATE) });
+      toast('girando ' + seconds.toString().replace('.', ',') + ' s à ' +
+        (direction === 'left' ? 'esquerda' : 'direita'));
     } catch (err) { toast('falhou: ' + err.message); }
   });
 }

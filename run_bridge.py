@@ -25,6 +25,7 @@ static_creds.install()
 
 import furbo_bridge  # noqa: E402
 import furbo_p2p  # noqa: E402  (o patch tem que vir antes)
+import pan_fix  # noqa: E402
 
 # A câmera é 2K e o mapa do protocolo já traz o índice de 1440p em
 # furbo_p2p.QUALITY_V3, mas o upstream nunca expôs essa qualidade:
@@ -33,6 +34,9 @@ import furbo_p2p  # noqa: E402  (o patch tem que vir antes)
 # 1080p. Medido com ffprobe: H.264 Main em 2560x1440.
 if "1440p" not in furbo_bridge.VIDEO_QUALITIES:
     furbo_bridge.VIDEO_QUALITIES = (*furbo_bridge.VIDEO_QUALITIES, "1440p")
+
+# O pan do upstream não manda o pare e a câmera gira até o batente. Ver pan_fix.
+pan_fix.install()
 
 if __name__ == "__main__":
     raise SystemExit(furbo_p2p.main())
