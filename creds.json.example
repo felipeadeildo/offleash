@@ -1,0 +1,24 @@
+{
+  "_comentario": [
+    "Copie para creds.json (chmod 600) e preencha com o que está no APARELHO,",
+    "não com o que o cloud devolve. Fontes, no Furbo Mini 360 / MINICAM3:",
+    "  /mnt/flash/furbo/p2p_auth.json     -> auth_key, password",
+    "  /mnt/flash/furbo/setup_info.json   -> uid (P2P UUID), device_token",
+    "  /v5/device/p2p_connection/get      -> account (P2PAccountId)",
+    "O README tem o passo a passo para chegar nesses arquivos."
+  ],
+  "cameras": [
+    {
+      "name": "Sala",
+      "device_id": "default",
+      "uid": "UID_DE_20_CARACTERES",
+      "auth_key": "8CHARSAB",
+      "account": "P2PAccountId",
+      "password": "P2PAccountKey",
+      "legacy": false,
+      "device_token": "",
+      "product": "MINICAM3",
+      "proto": "v3"
+    }
+  ]
+}

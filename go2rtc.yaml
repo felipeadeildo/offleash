@@ -1,0 +1,30 @@
+# go2rtc local do furbo-local. Uma câmera, um stream, nenhum cloud.
+#
+# O stream é exec porque o H.264 vem da sessão P2P que o bridge mantém. O
+# stream.sh não abre sessão própria: ele lê a do bridge por HTTP.
+#
+# Três listeners, com papéis bem diferentes:
+#   api     (HTTP)  a página de player que a UI carrega no iframe
+#   rtsp    (:8554) para mpv, VLC, Home Assistant
+#   webrtc  (:8555) mídia, não é HTTP apesar da porta
+api:
+  listen: "${GO2RTC_API_LISTEN}"
+
+# RTSP fica com senha porque qualquer um na LAN poderia puxar o vídeo. A senha
+# é derivada do api_token (hash de mão única, calculado no run.sh), então uma
+# URL vazada dá vídeo e não dá a API de controle. O go2rtc dispensa a senha
+# para loopback, então ferramentas locais seguem funcionando sem credencial.
+rtsp:
+  listen: "${GO2RTC_RTSP_LISTEN}"
+  username: "furbo"
+  password: "${RTSP_PASSWORD}"
+
+webrtc:
+  listen: "${GO2RTC_WEBRTC_LISTEN}"
+
+log:
+  level: info
+
+streams:
+  furbo:
+    - "exec:/local/stream.sh {output} default#killsignal=15#killtimeout=8"
