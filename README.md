@@ -202,6 +202,12 @@ lugares além da nuvem:
 | **pelo BLE do aparelho** | o `P2PUuid` e o `DeviceToken` saem em duas características GATT | ainda passa pelo cloud, mas sem conta e sem código |
 | **do próprio aparelho** | UART 115200 no flash, em `/mnt/flash/furbo/p2p_auth.json` | abrir a câmera, e no 360 o UART tinha senha |
 
+O caminho do meio é o mais elegante: ler o flash com uma garra, sem dessoldar
+nada, devolve a imagem inteira **e** os arquivos de credencial que o aparelho
+escreve na partição gravável. Se você quiser seguir por aí, o guia de como falar
+com o hardware, do multímetro ao bootloader, está em
+[`docs/hardware.md`](docs/hardware.md).
+
 **O que não dá para evitar, nem com engenharia reversa perfeita:**
 
 - **A `auth_key` é um segredo de 8 caracteres.** Não é derivável do MAC, do
