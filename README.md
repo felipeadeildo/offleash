@@ -46,21 +46,63 @@ Funciona, e foi medido numa câmera de verdade, não num emulador: **Furbo Mini
 | controles | pan, petisco, som do petisco, volume, visão noturna, sensibilidade ao latido, autotracking, autozoom, qualidade |
 | sem | app no celular, relay, e nenhuma conta no cloud depois da colheita inicial |
 
-## Arquitetura
+## Como isso funciona
 
+São quatro camadas, e vale saber quem é dono de cada uma, porque é isso que
+decide o que dá para cortar e o que não dá.
+
+```mermaid
+flowchart LR
+    cam["câmera Furbo<br/>nenhuma porta TCP aberta"]
+
+    subgraph tutk["ThroughTek, a TUTK/Kalay"]
+        masters["servidores mestres<br/>m1/m2/m3.iotcplatform.com"]
+        relay["relay"]
+    end
+
+    cloud["cloud da Furbo<br/>product.furbo.co"]
+    bridge["bridge offleash"]
+    go2rtc["go2rtc"]
+    viewer["navegador, mpv, Home Assistant"]
+
+    cam <-->|"login do aparelho<br/>UID + AuthKey"| masters
+    bridge -->|"resolve o UID<br/>só no começo"| masters
+    cam <-->|"sessão P2P na LAN<br/>o caminho do vídeo"| bridge
+    cam -.->|"por relay, quando não há LAN"| relay
+    relay -.-> bridge
+    cloud -.->|"emite a credencial,<br/>e reemite a cada consulta"| cam
+    bridge -.->|"colhe uma vez,<br/>e-mail + senha + código"| cloud
+    bridge -->|"H.264 cru"| go2rtc
+    go2rtc --> viewer
 ```
-câmera ──(TUTK/Kalay P2P, DTLS)──▶ bridge ──HTTP──▶ go2rtc ──▶ RTSP / WebRTC
-                                     │                        │
-                                     └── API local ──▶ web app ──▶ navegador
+
+1. **A câmera** roda um servidor TUTK e não abre porta nenhuma. Ela só fala para
+   fora e responde à busca em LAN.
+2. **A ThroughTek** dá endereço à câmera (o `uid`), autentica o transporte (a
+   `auth_key`) e, quando não há LAN, intermedeia por relay.
+3. **O cloud da Furbo** não toca no vídeo. Ele cuida da conta, do provisionamento
+   e de **emitir a credencial** que as duas pontas usam.
+4. **O nosso stack** abre a sessão P2P, lê o H.264 cru e publica.
+
+O caminho do vídeo é local e o caminho da credencial passa pela nuvem. Essa
+separação é o que permite usar a nuvem uma única vez.
+
+### O caminho do vídeo, e por que o go2rtc fica no meio
+
+```mermaid
+flowchart LR
+    cam["câmera<br/>uma sessão de vídeo por vez"] -->|"H.264"| bridge["bridge"]
+    bridge --> go2rtc["go2rtc"]
+    go2rtc --> a["navegador<br/>WebRTC"]
+    go2rtc --> b["mpv / Home Assistant<br/>RTSP"]
+    go2rtc -.-> c["gravador<br/>roadmap"]
+    go2rtc -.-> d["IA local<br/>roadmap"]
 ```
 
-Três processos, todos em containers do mesmo image, todos em `--network host`:
-
-- **bridge** mantém a sessão P2P, lê o H.264 cru e expõe uma API HTTP com o
-  estado e os comandos da câmera
-- **go2rtc** transforma esse H.264 em RTSP e WebRTC, sob demanda
-- **web app** serve a interface e faz de proxy para a API injetando o token, de
-  modo que o navegador nunca vê o segredo
+A câmera aceita **uma** sessão de vídeo por vez. É por isso que o bridge mantém
+uma só e o go2rtc é quem distribui: quem quiser ver, gravar ou analisar consome
+do go2rtc, nunca da câmera. Qualquer arquitetura que abra uma segunda sessão
+quebra a primeira, e esse é o erro mais comum de quem tenta fazer isso.
 
 ## Começando
 
@@ -101,6 +143,27 @@ vazada dá vídeo e não dá acesso aos controles.
 Esta é a parte que quase nenhum projeto documenta, e é o que decide se o seu
 acesso vai funcionar amanhã.
 
+```mermaid
+sequenceDiagram
+    participant F as câmera
+    participant C as cloud da Furbo
+    participant P as app oficial
+    participant V as você
+
+    Note over F,C: no provisionamento
+    C->>F: UID + AuthKey + senha do canal AV
+    C->>P: os mesmos valores
+
+    Note over V,C: a colheita, uma vez
+    V->>C: e-mail + senha + código
+    C-->>V: UID, AuthKey, conta e senha atuais
+
+    Note over P,C: e é isso que quebra a nossa cópia
+    P->>C: pede credencial nova
+    C-->>P: senha NOVA, a anterior morre
+    Note over V,F: a nossa senha morreu. a sessão IOTC conecta, o AV falha com -20011
+```
+
 A câmera não aceita conexão local por RTSP nem ONVIF. Todo o vídeo sai por
 TUTK/Kalay, um P2P da ThroughTek que autentica nas duas pontas com quatro
 valores:
@@ -128,8 +191,33 @@ Reiniciar a câmera não resolve. Recuperar custa um minuto:
 ./harvest.sh code 123456
 ```
 
-Como a senha é reemitida, quem quiser usar o app junto vai ter de re-colher a
-credencial a cada uso. É o preço de não passar pelo cloud no dia a dia.
+### Dá para evitar a conta?
+
+Dá, e é decisão de arquitetura, não de código. Os quatro valores existem em dois
+lugares além da nuvem:
+
+| de onde | como | o que custa |
+| --- | --- | --- |
+| **cloud, uma vez** | o `./harvest.sh`, com e-mail, senha e o código | um minuto, e a conta precisa existir |
+| **pelo BLE do aparelho** | o `P2PUuid` e o `DeviceToken` saem em duas características GATT | ainda passa pelo cloud, mas sem conta e sem código |
+| **do próprio aparelho** | UART 115200 no flash, em `/mnt/flash/furbo/p2p_auth.json` | abrir a câmera, e no 360 o UART tinha senha |
+
+**O que não dá para evitar, nem com engenharia reversa perfeita:**
+
+- **A `auth_key` é um segredo de 8 caracteres.** Não é derivável do MAC, do
+  número de série ou de qualquer coisa que a câmera exponha, porque se fosse
+  não seria segredo. Engenharia reversa entrega o formato da fechadura, não a
+  combinação.
+- **A câmera só fala TUTK.** Não existe RTSP nem ONVIF para onde cair, e o `uid`
+  vive na infraestrutura da ThroughTek. A câmera faz login lá de qualquer
+  maneira, mesmo quando o vídeo vem direto pela LAN.
+- **A SDK do TUTK é um binário fechado.** Dá para reimplementar o protocolo, e
+  existe quem tenha feito boa parte disso em Python puro, mas é um projeto bem
+  maior do que o ganho.
+
+O resumo honesto: **a engenharia reversa já foi feita**, e é ela que nos deixa
+falar com a câmera sem passar pelo app. O que sobra não é falta de conhecimento,
+é distribuição de uma chave.
 
 ## O pan: o que o app faz de verdade
 
