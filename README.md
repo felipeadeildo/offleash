@@ -259,6 +259,82 @@ de aproximadamente 110 unidades por segundo na escala da câmera, mas a
 conversão disso para graus não foi medida com confiança, então a interface
 oferece passos de 0,2 s a 1,6 s em vez de prometer graus.
 
+## Acesso de fora de casa
+
+O vídeo nasce na sua LAN, então ver de fora é uma decisão de arquitetura, e as
+respostas custam coisas bem diferentes.
+
+```mermaid
+flowchart LR
+    subgraph casa["sua casa"]
+        cam["câmera"] --> bridge["bridge"]
+        bridge --> go2rtc["go2rtc"]
+    end
+    go2rtc -->|"1. tailnet privada"| ts["Tailscale"]
+    ts --> celular["celular e notebook"]
+    go2rtc -->|"2. push de saída"| vps["VPS sua<br/>relay + TLS + auth"]
+    vps --> navegador["qualquer navegador"]
+    go2rtc -->|"3. túnel de saída"| tun["túnel gerenciado"]
+    tun --> navegador
+```
+
+| | qualidade | custo | quem alcança |
+| --- | --- | --- | --- |
+| **Tailscale** | a melhor: caminho direto WireGuard | zero | só quem está na sua tailnet |
+| **VPS sua** | você controla: WebRTC sub-segundo ou HLS | uns 5 dólares por mês | pública, com a sua autenticação |
+| **Túnel gerenciado** | boa, mas passa pela rede de terceiro | zero | pública, autenticada pelo provedor |
+
+O limite que não muda em nenhuma das três: **a câmera aceita uma sessão só**,
+então quem distribui é o go2rtc lá de casa. Um relay nunca abre uma segunda
+sessão na câmera; ele é só mais um consumidor do go2rtc.
+
+### 1. Tailscale, que é o que já está pronto
+
+```sh
+./run.sh tailnet
+```
+
+Isso amarra a web app, o player, o RTSP e a mídia WebRTC ao IP da tailnet, e a
+nada mais. Com o Tailscale ligado no celular, abra `http://<ip-da-tailnet>:8080/`.
+
+**Aviso importante:** a web app não tem autenticação própria, porque ela mesma
+injeta o token da API. Numa tailnet só sua isso é você. **Se a tailnet for
+compartilhada, qualquer máquina dela alcança a câmera**, inclusive para
+controlar. Nesse caso: restrinja por ACL no Tailscale, use um tailnet próprio,
+ou espere a autenticação da web app entrar no roadmap.
+
+### 2. Uma VPS sua, para usar de qualquer navegador
+
+A ideia é o caminho de saída, nunca uma porta aberta em casa:
+
+```mermaid
+flowchart LR
+    subgraph casa["casa"]
+        cam["câmera"] --> bridge["bridge"] --> go2rtc["go2rtc"]
+    end
+    subgraph vps["VPS"]
+        mediamtx["MediaMTX ou go2rtc<br/>recebe o push"] --> proxy["Caddy<br/>HTTPS + autenticação"]
+    end
+    go2rtc -->|"push RTSP, de dentro para fora"| mediamtx
+    proxy --> web["web app, de qualquer lugar"]
+```
+
+- a casa faz **push** para a VPS, então não existe porta aberta nem IP fixo em casa
+- a VPS roda o fan-out: WebRTC para latência baixa, HLS para compatibilidade
+- o TLS e a autenticação ficam na VPS, que é a única coisa pública
+- com uma tailnet ligando a casa à VPS, nem o push precisa sair para a internet aberta
+
+Se a sua ambição é o serviço self-hosted do roadmap, é aqui que ele mora: **o
+mesmo desenho que serve você serve vários usuários**, um bridge por casa e um
+relay central.
+
+### 3. Túnel gerenciado, sem VPS
+
+Serviços como o Cloudflare Tunnel publicam um endereço HTTPS sem abrir porta e
+com autenticação do provedor. Resolve sem infraestrutura nenhuma, mas o vídeo
+passa pela rede de terceiro, e as condições de uso desses serviços restringem
+transmissão contínua de vídeo. Vale ler antes de usar como caminho principal.
+
 ## Limites conhecidos
 
 - **Uma sessão de vídeo por vez**, e o app oficial compete com este projeto.
